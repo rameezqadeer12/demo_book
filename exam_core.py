@@ -1,0 +1,83 @@
+# exam_core.py
+
+import os, pickle, faiss, re
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from llama_cpp import Llama
+
+STORE = "rag_store"   # Render pe yahan store hoga
+GGUF_PATH = "model/mistral.gguf"
+
+# ---- load store ----
+with open(os.path.join(STORE, "chunks.pkl"), "rb") as f:
+    chunks = pickle.load(f)
+
+index = faiss.read_index(os.path.join(STORE, "index.faiss"))
+embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+# ---- load model ----
+llm = Llama(
+    model_path=GGUF_PATH,
+    n_ctx=2048,
+    n_threads=4,
+    n_gpu_layers=0
+)
+
+# ---- core functions ----
+
+def retrieve(query, top_k=5):
+    q_emb = embedder.encode([query], normalize_embeddings=True)
+    scores, ids = index.search(q_emb.astype("float32"), top_k)
+
+    results = []
+    for i, idx in enumerate(ids[0]):
+        if idx == -1: continue
+        r = chunks[idx]
+        results.append({"text": r["text"]})
+    return results
+
+
+def build_book_answer(retrieved, max_chars=600):
+    parts, total = [], 0
+    for r in retrieved:
+        t = re.sub(r"\s+", " ", r["text"]).strip()
+        if len(t) < 40: continue
+        if total + len(t) > max_chars:
+            t = t[:max_chars-total]
+        parts.append(t)
+        total += len(t)
+        if total >= max_chars: break
+    return " ".join(parts)
+
+
+def ask(question):
+    if question.count("?") > 1:
+        return "❌ Please ask only ONE question."
+
+    retrieved = retrieve(question)
+    book = build_book_answer(retrieved)
+
+    if len(book) < 50:
+        return "❌ NOT FOUND IN BOOK."
+
+    prompt = f"""<s>[SYSTEM]
+You are a strict school teacher. Only use BOOK ANSWER.
+[/SYSTEM]
+[USER]
+BOOK ANSWER:
+{book}
+
+QUESTION:
+{question}
+
+FORMAT:
+📘 Book Answer:
+🧠 Teacher Explanation:
+✏️ Solved Example:
+✅ Final Answer:
+[/USER]
+[ASSISTANT]
+"""
+
+    out = llm(prompt, max_tokens=200, temperature=0.2)
+    return out["choices"][0]["text"].strip()

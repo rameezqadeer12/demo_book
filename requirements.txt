@@ -3,4 +3,5 @@ uvicorn
 faiss-cpu
 sentence-transformers
 llama-cpp-python
-numpy
+huggingface-hub
+python-multipart

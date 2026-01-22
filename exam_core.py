@@ -4,11 +4,20 @@ import os, pickle, faiss, re
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from llama_cpp import Llama
+from huggingface_hub import snapshot_download
 
-STORE = "rag_store"   # Render pe yahan store hoga
-GGUF_PATH = "model/mistral.gguf"
+# ⬇ AUTO DOWNLOAD FROM HUGGING FACE
+snapshot_download(
+    repo_id="rameezqadeer19/punjab-exam-rag",
+    repo_type="model",
+    local_dir=".",
+    local_dir_use_symlinks=False
+)
 
-# ---- load store ----
+STORE = "rag_store"
+MODEL_PATH = "model/mistral.gguf"
+
+# ---- load rag ----
 with open(os.path.join(STORE, "chunks.pkl"), "rb") as f:
     chunks = pickle.load(f)
 
@@ -17,30 +26,23 @@ embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
 # ---- load model ----
 llm = Llama(
-    model_path=GGUF_PATH,
+    model_path=MODEL_PATH,
     n_ctx=2048,
     n_threads=4,
     n_gpu_layers=0
 )
 
-# ---- core functions ----
-
+# ---- retrieval ----
 def retrieve(query, top_k=5):
     q_emb = embedder.encode([query], normalize_embeddings=True)
     scores, ids = index.search(q_emb.astype("float32"), top_k)
+    return [chunks[i]["text"] for i in ids[0] if i != -1]
 
-    results = []
-    for i, idx in enumerate(ids[0]):
-        if idx == -1: continue
-        r = chunks[idx]
-        results.append({"text": r["text"]})
-    return results
-
-
+# ---- book answer ----
 def build_book_answer(retrieved, max_chars=600):
     parts, total = [], 0
-    for r in retrieved:
-        t = re.sub(r"\s+", " ", r["text"]).strip()
+    for t in retrieved:
+        t = re.sub(r"\s+", " ", t).strip()
         if len(t) < 40: continue
         if total + len(t) > max_chars:
             t = t[:max_chars-total]
@@ -49,8 +51,9 @@ def build_book_answer(retrieved, max_chars=600):
         if total >= max_chars: break
     return " ".join(parts)
 
-
+# ---- main ask ----
 def ask(question):
+
     if question.count("?") > 1:
         return "❌ Please ask only ONE question."
 

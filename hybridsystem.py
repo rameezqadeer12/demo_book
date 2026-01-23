@@ -2,6 +2,7 @@
 # Punjab Exam AI - Hybrid System
 # GitHub: code only
 # HuggingFace: model + FAISS store
+# GPU + Server ready
 # ================================
 
 import os, pickle, faiss, re
@@ -10,14 +11,18 @@ from sentence_transformers import SentenceTransformer
 from llama_cpp import Llama
 from huggingface_hub import hf_hub_download
 
-# ========= 1. DOWNLOAD FROM HUGGINGFACE =========
+# ========= 0. SETTINGS =========
 
 HF_REPO = "rameezqadeer19/punjab-exam-rag"
-
 BASE_DIR = "hf_assets"
+GPU_LAYERS = int(os.getenv("GPU_LAYERS", "35"))   # 0 = CPU, 20–50 = GPU
+N_THREADS = int(os.getenv("N_THREADS", "8"))
+
 os.makedirs(BASE_DIR, exist_ok=True)
 
-print("🔄 Downloading assets from HuggingFace...")
+# ========= 1. DOWNLOAD FROM HUGGINGFACE =========
+
+print("\n🔄 Downloading assets from HuggingFace...")
 
 GGUF_PATH = hf_hub_download(
     repo_id=HF_REPO,
@@ -37,7 +42,7 @@ INDEX_PATH = hf_hub_download(
     local_dir=BASE_DIR
 )
 
-print("✅ All assets ready")
+print("✅ Assets ready")
 
 # ========= 2. LOAD FAISS + CHUNKS =========
 
@@ -49,9 +54,7 @@ with open(CHUNKS_PATH, "rb") as f:
 index = faiss.read_index(INDEX_PATH)
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
-print("✅ Knowledge base loaded")
-print("   Chunks:", len(chunks))
-print("   FAISS :", index.ntotal)
+print(f"✅ Knowledge base loaded | Chunks: {len(chunks)} | FAISS: {index.ntotal}")
 
 # ========= 3. LOAD LLaMA =========
 
@@ -60,11 +63,11 @@ print("🔄 Loading LLaMA model...")
 llm = Llama(
     model_path=GGUF_PATH,
     n_ctx=2048,
-    n_threads=8,     # tumhara CPU strong hai
-    n_gpu_layers=0  # GPU ho to 30–40 kar dena
+    n_threads=N_THREADS,
+    n_gpu_layers=GPU_LAYERS
 )
 
-print("✅ LLaMA loaded")
+print(f"✅ LLaMA loaded | GPU layers: {GPU_LAYERS}")
 
 # ========= 4. RETRIEVER =========
 
@@ -158,10 +161,10 @@ def ask_llama(question, top_k=5):
 
     return answer, retrieved
 
-# ========= 8. TERMINAL MODE (OPTIONAL) =========
+# ========= 8. TERMINAL MODE =========
 
 if __name__ == "__main__":
-    print("\n🎓 PUNJAB EXAM AI READY")
+    print("\n🎓 PUNJAB EXAM AI READY (TERMINAL MODE)")
     print("Type a question.  Type 'exit' to stop.\n")
 
     while True:
